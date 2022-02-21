@@ -2,6 +2,7 @@
 # coding: utf-8
 
 # Copyright (c) 2017-2021 Martin Larralde <martin.larralde@ens-paris-saclay.fr>
+# Copyright (c) 2022 Nathan Banks
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -21,7 +22,7 @@
 # OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 # OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""A progress bar for `ffmpeg` using `tqdm`.
+"""A progress bar for `ffmpeg` using `rich`.
 """
 
 from __future__ import unicode_literals
@@ -33,6 +34,7 @@ import re
 import signal
 import sys
 import subprocess
+from typing import Optional
 
 if sys.version_info < (3, 0):
     import Queue as queue
@@ -41,14 +43,37 @@ else:
     import queue
     unicode = str
 
-from tqdm import tqdm
+import rich.console
+import rich.progress
+import rich.table
+import rich.text
+
+
+class FramesPerSecondColumn(rich.progress.ProgressColumn):
+    """Renders file size downloaded and total, e.g. '0.5/2.3 GB'.
+
+    Args:
+        binary_units (bool, optional): Use binary units, KiB, MiB etc. Defaults to False.
+    """
+
+    def __init__(
+        self, binary_units: bool = False, table_column: Optional[rich.table.Column] = None
+    ) -> None:
+        self.binary_units = binary_units
+        super().__init__(table_column=table_column)
+
+    def render(self, task: rich.progress.Task) -> rich.text.Text:
+        speed = task.finished_speed or task.speed
+        if speed is None:
+            return rich.text.Text("? fps")
+        return rich.text.Text(f"{speed:.1f} fps")
 
 
 class ProgressNotifier(object):
 
     _DURATION_RX = re.compile(b"Duration: (\d{2}):(\d{2}):(\d{2})\.\d{2}")
     _PROGRESS_RX = re.compile(b"time=(\d{2}):(\d{2}):(\d{2})\.\d{2}")
-    _SOURCE_RX = re.compile(b"from '(.*)':")
+    _DEST_RX = re.compile(b"to '(.*)':")
     _FPS_RX = re.compile(b"(\d{2}\.\d{2}|\d{2}) fps")
 
     @staticmethod
@@ -60,19 +85,20 @@ class ProgressNotifier(object):
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.pbar is not None:
-            self.pbar.close()
+            self.pbar.stop()
 
-    def __init__(self, file=None, encoding=None, tqdm=tqdm):
+    def __init__(self, file=None, encoding=None, console = rich.console.Console(stderr=True)):
         self.lines = []
         self.line_acc = bytearray()
         self.duration = None
-        self.source = None
+        self.dest = None
         self.started = False
         self.pbar = None
+        self.pbar_task = None
         self.fps = None
         self.file = file or sys.stderr
         self.encoding = encoding or locale.getpreferredencoding() or 'UTF-8'
-        self.tqdm = tqdm
+        self.console = console
 
     def __call__(self, char, stdin = None):
         if isinstance(char, unicode):
@@ -81,8 +107,8 @@ class ProgressNotifier(object):
             line = self.newline()
             if self.duration is None:
                 self.duration = self.get_duration(line)
-            if self.source is None:
-                self.source = self.get_source(line)
+            if self.dest is None:
+                self.dest = self.get_dest(line)
             if self.fps is None:
                 self.fps = self.get_fps(line)
             self.progress(line)
@@ -113,8 +139,8 @@ class ProgressNotifier(object):
             return self._seconds(*search.groups())
         return None
 
-    def get_source(self, line):
-        search = self._SOURCE_RX.search(line)
+    def get_dest(self, line):
+        search = self._DEST_RX.search(line)
         if search is not None:
             return os.path.basename(search.group(1).decode(self.encoding))
         return None
@@ -134,23 +160,27 @@ class ProgressNotifier(object):
                     total *= self.fps
 
             if self.pbar is None:
-                self.pbar = self.tqdm(
-                    desc=self.source,
-                    file=self.file,
-                    total=total,
-                    dynamic_ncols=True,
-                    unit=unit,
-                    ncols=0,
-                    ascii=os.name=="nt",  # windows cmd has problems with unicode
+                self.pbar = rich.progress.Progress(
+                    rich.progress.SpinnerColumn(),
+                    rich.progress.TextColumn("[progress.description]{task.description}"),
+                    rich.progress.BarColumn(),
+                    rich.progress.TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                    rich.progress.TextColumn("{task.completed}/{task.total}"),
+                    FramesPerSecondColumn(),
+                    rich.progress.TimeRemainingColumn(),
+                    console=self.console
                 )
+                self.pbar_task = self.pbar.add_task(description=self.dest, total=total)
+                self.pbar.start()
 
-            self.pbar.update(current - self.pbar.n)
+            self.pbar.update(self.pbar_task, completed=current)
 
-def main(argv=None, stream=sys.stderr, encoding=None, tqdm=tqdm):
+def main(argv=None, stream=sys.stderr, encoding=None, console=rich.console.Console(stderr=True)):
     argv = argv or sys.argv[1:]
+    console = rich.console.Console(file=stream)
 
     try:
-        with ProgressNotifier(file=stream, encoding=encoding, tqdm=tqdm) as notifier:
+        with ProgressNotifier(file=stream, encoding=encoding, console=console) as notifier:
 
             cmd = ["ffmpeg"] + argv
             p = subprocess.Popen(cmd, stderr=subprocess.PIPE)
@@ -163,11 +193,11 @@ def main(argv=None, stream=sys.stderr, encoding=None, tqdm=tqdm):
                     notifier(out)
 
     except KeyboardInterrupt:
-        print("Exiting.", file=stream)
+        console.print("Received KeyboardInterrupt, exiting...")
         return signal.SIGINT + 128  # POSIX standard
 
     except Exception as err:
-        print("Unexpected exception:", err, file=stream)
+        console.print("Unexpected exception:", err)
         return 1
 
     else:

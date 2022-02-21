@@ -34,8 +34,8 @@ before_test:
 - curl -SsL "http://techslides.com/demos/sample-videos/small.mp4" > test.mp4
 
 test_script:
-- "%PYTHON%\\python.exe -m ffpb -i static/test.mp3 -acodec copy test.mka"
-- "%PYTHON%\\python.exe -m ffpb -i test.mp4 -vcodec copy test.mkv"
+- "%PYTHON%\\python.exe -m ffrich -i static/test.mp3 -acodec copy test.mka"
+- "%PYTHON%\\python.exe -m ffrich -i test.mp4 -vcodec copy test.mkv"
 
 before_deploy:
 - "%PYTHON%\\python.exe -m pip install -U twine"
