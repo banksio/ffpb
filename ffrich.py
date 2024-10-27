@@ -174,6 +174,9 @@ class ProgressNotifier(object):
                 self.pbar.start()
 
             self.pbar.update(self.pbar_task, completed=current)
+        else:
+            if not (decoded_line := line.decode()) == "":
+                self.console.print(decoded_line, highlight=False)
 
 def main(argv=None, stream=sys.stderr, encoding=None, console=rich.console.Console(stderr=True)):
     argv = argv or sys.argv[1:]
