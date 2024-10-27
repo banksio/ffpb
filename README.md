@@ -42,7 +42,13 @@ ffrich.main(argv=None, stream=sys.stderr, encoding=None, console=rich.console.Co
 
 ## Installation
 
-Install from local source:
+Install from PyPI:
+
+```sh
+pip install ffrich
+```
+
+Install from Git:
 
 ```sh
 pip install git+https://github.com/banksio/ffrich.git
