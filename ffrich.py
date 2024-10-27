@@ -65,8 +65,8 @@ class FramesPerSecondColumn(rich.progress.ProgressColumn):
     def render(self, task: rich.progress.Task) -> rich.text.Text:
         speed = task.finished_speed or task.speed
         if speed is None:
-            return rich.text.Text("? fps")
-        return rich.text.Text(f"{speed:.1f} fps")
+            return rich.text.Text("- fps", style="green")
+        return rich.text.Text(f"{speed:.1f} fps", style="green")
 
 
 class ProgressNotifier(object):
