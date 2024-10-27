@@ -45,5 +45,5 @@ ffrich.main(argv=None, stream=sys.stderr, encoding=None, console=rich.console.Co
 Install from local source:
 
 ```sh
-pip install <path/to/this/repo>
+pip install git+https://github.com/banksio/ffrich.git
 ```
